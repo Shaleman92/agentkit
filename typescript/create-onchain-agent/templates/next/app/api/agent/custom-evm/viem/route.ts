@@ -3,11 +3,11 @@ import {
   ActionProvider,
   AgentKit,
   cdpApiActionProvider,
-  jupiterActionProvider,
-  PrivyWalletConfig,
-  PrivyWalletProvider,
-  splActionProvider,
+  erc20ActionProvider,
+  pythActionProvider,
+  ViemWalletProvider,
   walletActionProvider,
+  wethActionProvider,
 } from "@coinbase/agentkit";
 import { getLangChainTools } from "@coinbase/agentkit-langchain";
 import { MemorySaver } from "@langchain/langgraph";
@@ -15,6 +15,8 @@ import { createReactAgent } from "@langchain/langgraph/prebuilt";
 import { ChatOpenAI } from "@langchain/openai";
 import fs from "fs";
 import { NextResponse } from "next/server";
+import { createWalletClient, http } from "viem";
+import { generatePrivateKey, privateKeyToAccount } from "viem/accounts";
 
 /**
  * AgentKit Integration Route
@@ -54,7 +56,7 @@ import { NextResponse } from "next/server";
 // The agent
 let agent: ReturnType<typeof createReactAgent>;
 
-// Configure a file to persist the agent's Prviy Wallet Data
+// Configure a file to persist a user's private key if none provided
 const WALLET_DATA_FILE = "wallet_data.txt";
 
 /**
@@ -79,29 +81,51 @@ async function getOrInitializeAgent(): Promise<ReturnType<typeof createReactAgen
     const llm = new ChatOpenAI({ model: "gpt-4o-mini" });
 
     // Initialize WalletProvider: https://docs.cdp.coinbase.com/agentkit/docs/wallet-management
-    const config: PrivyWalletConfig = {
-      appId: process.env.PRIVY_APP_ID as string,
-      appSecret: process.env.PRIVY_APP_SECRET as string,
-      walletId: process.env.PRIVY_WALLET_ID as string,
-      authorizationPrivateKey: process.env.PRIVY_WALLET_AUTHORIZATION_PRIVATE_KEY,
-      authorizationKeyId: process.env.PRIVY_WALLET_AUTHORIZATION_KEY_ID,
-      chainType: "solana",
-      networkId: process.env.NETWORK_ID,
-    };
-    // Try to load saved wallet data
-    if (fs.existsSync(WALLET_DATA_FILE)) {
-      const savedWallet = JSON.parse(fs.readFileSync(WALLET_DATA_FILE, "utf8"));
-      config.walletId = savedWallet.walletId;
-      config.authorizationPrivateKey = savedWallet.authorizationPrivateKey;
-      config.networkId = savedWallet.networkId;
+    let privateKey = process.env.PRIVATE_KEY as `0x${string}`;
+    if (!privateKey) {
+      if (fs.existsSync(WALLET_DATA_FILE)) {
+        privateKey = JSON.parse(fs.readFileSync(WALLET_DATA_FILE, "utf8")).privateKey;
+        console.info("Found private key in wallet_data.txt");
+      } else {
+        privateKey = generatePrivateKey();
+        fs.writeFileSync(WALLET_DATA_FILE, JSON.stringify({ privateKey }));
+        console.log("Created new private key and saved to wallet_data.txt");
+        console.log(
+          "We recommend you save this private key to your .env file and delete wallet_data.txt afterwards.",
+        );
+      }
     }
-    const walletProvider = await PrivyWalletProvider.configureWithWallet(config);
+    const account = privateKeyToAccount(privateKey);
+
+    const rpcUrl = process.env.RPC_URL as string;
+    const chainId = process.env.CHAIN_ID as string;
+    const client = createWalletClient({
+      account,
+      // Customize the chain metadata to match your custom chain
+      chain: {
+        id: parseInt(chainId),
+        rpcUrls: {
+          default: {
+            http: [rpcUrl],
+          },
+        },
+        name: "Custom Chain",
+        nativeCurrency: {
+          name: "Ether",
+          symbol: "ETH",
+          decimals: 18,
+        },
+      },
+      transport: http(),
+    });
+    const walletProvider = new ViemWalletProvider(client);
 
     // Initialize AgentKit: https://docs.cdp.coinbase.com/agentkit/docs/agent-actions
     const actionProviders: ActionProvider[] = [
+      wethActionProvider(),
+      pythActionProvider(),
       walletActionProvider(),
-      splActionProvider(),
-      jupiterActionProvider(),
+      erc20ActionProvider(),
     ];
     const canUseCdpApi = process.env.CDP_API_KEY_NAME && process.env.CDP_API_KEY_PRIVATE_KEY;
     if (canUseCdpApi) {
@@ -120,7 +144,7 @@ async function getOrInitializeAgent(): Promise<ReturnType<typeof createReactAgen
     const memory = new MemorySaver();
 
     // Initialize Agent
-    const canUseFaucet = walletProvider.getNetwork().networkId == "solana-devnet" && canUseCdpApi;
+    const canUseFaucet = walletProvider.getNetwork().networkId == "base-sepolia" && canUseCdpApi;
     const faucetMessage = `If you ever need funds, you can request them from the faucet.`;
     const cantUseFaucetMessage = `If you need funds, you can provide your wallet details and request funds from the user.`;
     agent = createReactAgent({
@@ -138,10 +162,6 @@ async function getOrInitializeAgent(): Promise<ReturnType<typeof createReactAgen
         restating your tools' descriptions unless it is explicitly requested.
         `,
     });
-
-    // Save wallet data
-    const exportedWallet = walletProvider.exportWallet();
-    fs.writeFileSync(WALLET_DATA_FILE, JSON.stringify(exportedWallet));
 
     return agent;
   } catch (error) {

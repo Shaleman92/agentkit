@@ -150,13 +150,13 @@ export class CdpWalletProvider extends EvmWalletProvider {
         sourceVersion: version,
       });
     } else {
-      Coinbase.configureFromJson();
+      Coinbase.configureFromJson({ source: "agentkit", sourceVersion: version });
     }
 
     let wallet: Wallet;
 
     const mnemonicPhrase = config.mnemonicPhrase || process.env.MNEMONIC_PHRASE;
-    const networkId = config.networkId || process.env.NETWORK_ID || Coinbase.networks.BaseSepolia;
+    let networkId = config.networkId || process.env.NETWORK_ID || Coinbase.networks.BaseSepolia;
 
     try {
       if (config.wallet) {
@@ -164,6 +164,7 @@ export class CdpWalletProvider extends EvmWalletProvider {
       } else if (config.cdpWalletData) {
         const walletData = JSON.parse(config.cdpWalletData) as WalletData;
         wallet = await Wallet.import(walletData);
+        networkId = wallet.getNetworkId();
       } else if (mnemonicPhrase) {
         wallet = await Wallet.import({ mnemonicPhrase: mnemonicPhrase }, networkId);
       } else {
