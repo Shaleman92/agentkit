@@ -21,12 +21,15 @@ class SmartWalletProviderConfig(BaseModel):
     smart_wallet_address: str | None = Field(None, description="Smart wallet address")
     cdp_api_key_name: str | None = Field(None, description="The CDP API Key Name")
     cdp_api_key_private_key: str | None = Field(None, description="The CDP API Key Private Key")
-    paymaster_url: str | None = Field(None, description="URL for the paymaster service to sponsor transactions")
+    paymaster_url: str | None = Field(
+        None, description="URL for the paymaster service to sponsor transactions"
+    )
 
     class Config:
         """Configuration for SmartWalletProvider."""
 
         arbitrary_types_allowed = True
+
 
 class SmartWalletProvider(EvmWalletProvider):
     """A wallet provider that uses the Coinbase Smart Wallet SDK."""
@@ -39,12 +42,14 @@ class SmartWalletProvider(EvmWalletProvider):
             network_id=config.network_id,
             chain_id=NETWORK_ID_TO_CHAIN[config.network_id].id,
         )
-        self._web3 = Web3(Web3.HTTPProvider(NETWORK_ID_TO_CHAIN[config.network_id].rpc_urls["default"].http[0]))
+        self._web3 = Web3(
+            Web3.HTTPProvider(NETWORK_ID_TO_CHAIN[config.network_id].rpc_urls["default"].http[0])
+        )
 
         if config.cdp_api_key_name and config.cdp_api_key_private_key:
             Cdp.configure(
                 api_key_name=config.cdp_api_key_name,
-                private_key=config.cdp_api_key_private_key.replace("\\n", "\n")
+                private_key=config.cdp_api_key_private_key.replace("\\n", "\n"),
             )
         else:
             Cdp.configure_from_json()
@@ -109,7 +114,11 @@ class SmartWalletProvider(EvmWalletProvider):
         """
         user_operation = self._smart_wallet.send_user_operation(
             calls=[
-                EncodedCall(to=transaction["to"], data=transaction.get("data", b""), value=transaction.get("value", 0)),
+                EncodedCall(
+                    to=transaction["to"],
+                    data=transaction.get("data", b""),
+                    value=transaction.get("value", 0),
+                ),
             ]
         )
         result = user_operation.wait()
@@ -135,11 +144,22 @@ class SmartWalletProvider(EvmWalletProvider):
             return result.transaction_hash
         raise Exception(f"Operation failed with status: {result.status}")
 
-    def wait_for_transaction_receipt(self, tx_hash: HexStr, timeout: float = 120, poll_latency: float = 0.1) -> dict[str, Any]:
+    def wait_for_transaction_receipt(
+        self, tx_hash: HexStr, timeout: float = 120, poll_latency: float = 0.1
+    ) -> dict[str, Any]:
         """Wait for a transaction receipt."""
-        return self._web3.eth.wait_for_transaction_receipt(tx_hash, timeout=timeout, poll_latency=poll_latency)
+        return self._web3.eth.wait_for_transaction_receipt(
+            tx_hash, timeout=timeout, poll_latency=poll_latency
+        )
 
-    def read_contract(self, contract_address: ChecksumAddress, abi: list[dict[str, Any]], function_name: str, args: list[Any] | None = None, block_identifier: BlockIdentifier = "latest") -> Any:
+    def read_contract(
+        self,
+        contract_address: ChecksumAddress,
+        abi: list[dict[str, Any]],
+        function_name: str,
+        args: list[Any] | None = None,
+        block_identifier: BlockIdentifier = "latest",
+    ) -> Any:
         """Read data from a smart contract."""
         contract = self._web3.eth.contract(address=contract_address, abi=abi)
         func = contract.functions[function_name]
